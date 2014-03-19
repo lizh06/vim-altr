@@ -1,7 +1,7 @@
 " altr - Switch to the missing file without interaction
-" Version: @@VERSION@@
-" Copyright (C) 2011-2012 Kana Natsuno <http://whileimautomaton.net/>
-" License: So-called MIT/X license  {{{
+" Version: 0.1.0
+" Copyright (C) 2011-2014 Kana Natsuno <http://whileimautomaton.net/>
+" License: MIT license  {{{
 "     Permission is hereby granted, free of charge, to any person obtaining
 "     a copy of this software and associated documentation files (the
 "     "Software"), to deal in the Software without restriction, including
@@ -23,7 +23,7 @@
 " }}}
 " Interface  "{{{1
 function! altr#back()  "{{{2
-  call altr#_switch(bufname('%'), 'back', altr#_rule_table())
+  call altr#_switch(expand('%:p'), 'back', altr#_rule_table())
 endfunction
 
 
@@ -81,12 +81,14 @@ function! altr#define_defaults()  "{{{2
   \   'lang/%.vim',
   \   'plugin/%.vim',
   \   'syntax/%.vim',
-  \   'syntax/*/%.vim',
+  \   'syntax/%/*.vim',
   \ ]
   let vim_after_runtime_files = map(copy(vim_runtime_files), '"after/".v:val')
   call altr#define(vim_after_runtime_files + vim_runtime_files)
 
-  call altr#define('%.c', '%.cc', '%.cpp', '%.cxx', '%.m', '%.h', '%.hh', '%.hpp', '%hxx')
+  call altr#define('autoload/%/%.vim', 'doc/%-%.txt', 'plugin/%/%.vim')
+
+  call altr#define('%.c', '%.cpp', '%.m', '%.h', '%.hpp')
 
   call altr#define('%.asax', '%.asax.cs')
   call altr#define('%.ascx', '%.ascx.cs', '%.ascx.designer.cs', '%.ascx.resx') 
@@ -99,7 +101,7 @@ endfunction
 
 
 function! altr#forward()  "{{{2
-  call altr#_switch(bufname('%'), 'forward', altr#_rule_table())
+  call altr#_switch(expand('%:p'), 'forward', altr#_rule_table())
 endfunction
 
 
@@ -147,6 +149,15 @@ endfunction
 
 
 " Misc.  "{{{1
+" Constants  "{{{2
+
+let s:E_NO_RULE = {'message': 'No rule is matched to the current buffer name.'}
+let s:E_NO_NEXT_FILE = {'message': 'The next file is not found.'}
+let s:E_NO_PREVIOUS_FILE = {'message': 'The previous file is not found.'}
+
+
+
+
 function! s:error(format, ...)  "{{{2
   throw call('s:format', a:000)
 endfunction
@@ -197,8 +208,14 @@ endfunction
 
 function! altr#_glob_path_from_pattern(pattern, matched_parts)  "{{{2
   let prefix = a:matched_parts[1]
-  let basepart = altr#_escape_replacement(a:matched_parts[2])
-  return prefix . substitute(a:pattern, '%', basepart, 'g')
+  let s = a:pattern
+  let i = 2
+  while s =~ '%'
+    let basepart = altr#_escape_replacement(a:matched_parts[i])
+    let s = substitute(s, '%', basepart, '')
+    let i += 1
+  endwhile
+  return prefix . s
 endfunction
 
 
@@ -206,6 +223,7 @@ endfunction
 
 function! altr#_infer_the_missing_path(bufname, direction, rule_table)  "{{{2
   let rules = altr#_sort_rules(a:rule_table)
+  let rule_found = 0
   for r in rules
     let [matchedp, match] = altr#_match_with_buffer_name(r, a:bufname)
     if matchedp
@@ -216,10 +234,14 @@ function! altr#_infer_the_missing_path(bufname, direction, rule_table)  "{{{2
       if path isnot 0
         return path
       endif
+      let rule_found = 1
     endif
   endfor
 
-  return 0
+  return
+  \ !rule_found ? s:E_NO_RULE :
+  \ a:direction ==# 'forward' ? s:E_NO_NEXT_FILE :
+  \ s:E_NO_PREVIOUS_FILE
 endfunction
 
 function! s:infer_step_2_a(bufname, direction, rule_table, rule, match)
@@ -251,6 +273,10 @@ function! s:infer_step_2_b(bufname, direction, rule_table, rule, match)
 
   while !0
     let pattern = cr[forward_p ? 'forward_pattern' : 'back_pattern']
+    if pattern ==# a:rule.current_pattern
+      break
+    endif
+
     let paths = altr#_list_paths(pattern, a:match)
     if !empty(paths)
       return paths[forward_p ? 0 : -1]
@@ -261,9 +287,6 @@ function! s:infer_step_2_b(bufname, direction, rule_table, rule, match)
     if cr is 0
       call s:error('Rule for %s is not defined.  Something is wrong.',
       \            string(pattern))
-    endif
-    if cr ==# a:rule
-      break
     endif
   endwhile
 
@@ -340,7 +363,7 @@ function! altr#_regexp_from_pattern(pattern)  "{{{2
   let p = a:pattern
   let p = escape(p, '\\')
   let p = substitute(p, '\V*', '\\.\\*', 'g')
-  let p = substitute(p, '\V%', '\\(\\.\\*\\)', '')
+  let p = substitute(p, '\V%', '\\(\\.\\*\\)', 'g')
   let p = printf('\V\^\(\.\{-}\)%s\$', p)
   return p
 endfunction
@@ -386,8 +409,10 @@ endfunction
 
 function! altr#_switch(...)  "{{{2
   let path = call('altr#_infer_the_missing_path', a:000)
-  if path is 0
-    call s:notice('No rule is matched to the current buffer name.')
+  if path is s:E_NO_RULE
+  \  || path is s:E_NO_NEXT_FILE
+  \  || path is s:E_NO_PREVIOUS_FILE
+    call s:notice(path.message)
   else
     " NB: bufnr() doesn't use a given {expr} literally.  According to :help
     " bufname() --
@@ -407,7 +432,13 @@ function! altr#_switch(...)  "{{{2
     " > end of the pattern.
     let n = bufnr(printf('^%s$', path))
     if n == -1
-      edit `=path`
+      " The default 'statusline' uses %f to show a file path.  According to
+      " :help, %f shows a path "as typed or relative to current directory".
+      " Therefore, if a file is opened by ":edit ../../foo/bar/baz", %f always
+      " shows a file path as "../../foo/bar/baz" rather than "bar/baz", even
+      " if the current directory is "foo".  To simplify paths in status lines,
+      " here we have to use relative paths to open unvisited files.
+      edit `=fnamemodify(path, ':.')`
     else
       " NB: Unlike <C-^>, :[N]buffer doesn't restore the last cursor position
       " of a buffer perfectly.  Only the cursor line is restored.  The cursor

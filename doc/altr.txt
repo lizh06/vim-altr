@@ -1,9 +1,9 @@
 *altr.txt*	Switch to the missing file without interaction
 
-Version @@VERSION@@
+Version 0.1.0
 Script ID: 4202
-Copyright (C) 2011-2012 Kana Natsuno <http://whileimautomaton.net/>
-License: So-called MIT/X license  {{{
+Copyright (C) 2011-2014 Kana Natsuno <http://whileimautomaton.net/>
+License: MIT license  {{{
     Permission is hereby granted, free of charge, to any person obtaining
     a copy of this software and associated documentation files (the
     "Software"), to deal in the Software without restriction, including
@@ -113,9 +113,8 @@ altr#remove_all()				*altr#remove_all()*
 altr#reset()					*altr#reset()*
 			|altr#remove_all()|, then |altr#define_defaults()|.
 
-altr#show([{pat}])				*altr#show()*
-			Show rules for {pat}, or show all rules is {pat} is
-			omitted.
+altr#show({pat})				*altr#show()*
+			Show rules for {pat}.
 
 
 ------------------------------------------------------------------------------
@@ -240,7 +239,8 @@ For example:
 ------------------------------------------------------------------------------
 RULE EXAMPLES					*altr-rule-examples*
 
-CASE 1 ~
+						*altr-rule-example-1*
+CASE 1: Simple patterns with single % ~
 
 Suppose that we have the following configuration:
 >
@@ -257,9 +257,10 @@ The following rules are defined by the configuration:
 If the current buffer name is "plugin/foo.vim", both |altr#forward()| and
 |altr#back()| opens "doc/foo.txt".
 
-CASE 2 ~
+						*altr-rule-example-2*
+CASE 2: Patterns with * ~
 
-Suppose that we have another configuration as follows:
+Suppose that we have the following configuration:
 >
 	call altr#remove_all()
 	call altr#define('ftplugin/%.vim',
@@ -299,6 +300,46 @@ And |altr#back()| opens files in the following order:
 4. ftplugin/foo_mine.vim
 5. ftplugin/foo.vim
 
+						*altr-rule-example-3*
+CASE 3: Patterns with multiple %s ~
+
+Suppose that we have the following configuration:
+>
+	call altr#remove_all()
+	call altr#define('autoload/%/%.vim',
+	\                'doc/%-%.txt',
+	\                'plugin/%/%.vim')
+<
+The following rules are defined by the configuration:
+
+	back pattern     | current pattern  | forward pattern
+	-----------------+------------------+-----------------
+	plugin/%/%.vim   | autoload/%/%.vim | doc/%-%.txt
+	autoload/%/%.vim | doc/%-%.txt      | plugin/%/%.vim
+	doc/%-%.txt      | plugin/%/%.vim   | autoload/%/%.vim
+
+And suppose that the following files exist:
+
+- autoload/textobj/bar.vim
+- autoload/textobj/foo.vim
+- doc/textobj-bar.txt
+- doc/textobj-foo.txt
+- plugin/textobj/bar.vim
+- plugin/textobj/foo.vim
+
+If the current buffer name is "autoload/textobj/foo.vim", |altr#forward()|
+opens files in the following order:
+
+1. doc/textobj-foo.txt
+2. plugin/textobj/foo.vim
+3. autoload/textobj/foo.vim
+
+And |altr#back()| opens files in the following order:
+
+1. plugin/textobj/foo.vim
+2. doc/textobj-foo.txt
+3. autoload/textobj/foo.vim
+
 
 ------------------------------------------------------------------------------
 DEFAULT RULES					*altr-default-rules*
@@ -320,7 +361,7 @@ For Vim script: >
 	lang/%.vim
 	plugin/%.vim
 	syntax/%.vim
-	syntax/*/%.vim
+	syntax/%/*.vim
 	after/autoload/%.vim
 	after/colors/%.vim
 	after/compiler/%.vim
@@ -334,7 +375,13 @@ For Vim script: >
 	after/lang/%.vim
 	after/plugin/%.vim
 	after/syntax/%.vim
-	after/syntax/*/%.vim
+	after/syntax/%/*.vim
+>
+
+For opeartor-user and textobj-user based Vim plugins: >
+	autoload/%/%.vim
+	doc/%/%.vim
+	plugin/%/%.vim
 >
 
 For C, C++ and Objective-C: >
@@ -391,6 +438,26 @@ BUGS						*altr-bugs*
 
 ==============================================================================
 CHANGELOG					*altr-changelog*
+
+0.1.0	2014-03-15T15:20:17+09:00		*altr-changelog-0.1.0*
+	- Support multiple %s in patterns.  See also |altr-rule-example-3|.
+	- Add default rules for Vim plugins which are based on
+	  vim-operator-user and vim-textobj-user.
+	- Improve messages for cases when there is no next/previous file.
+	- Fix to simplify paths shown in status lines (with %f).  In old
+	  versions, unvisited files are opened by :edit with absolute paths
+	  even if the files are below the current directory.  It causes long
+	  paths are shown in status lines.
+	- Fix the default rules for Vim syntax files.  In old versions, syntax
+	  files in nested directories like "syntax/foo/bar.vim" are not
+	  detected properly.
+
+0.0.3	2013-06-30T17:34:48+09:00		*altr-changelog-0.0.3*
+	- Fix |altr#forward()| and |altr#back()| to switch to a proper file
+	  if the current file exists in the current directory.  (Thank @deris
+	  for the patch.)
+	- Fix wrong usage document for |altr#show()|.  (Thank @thinca for the
+	  report).
 
 0.0.2	2012-09-01T15:07:32+09:00		*altr-changelog-0.0.2*
 	- Add default rules for C++ and Objective-C.
